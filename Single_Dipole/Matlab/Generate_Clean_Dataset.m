@@ -21,7 +21,7 @@ end
 
 % Define stuff
 n_dipoles = 1;
-train_size = 10e6;
+train_size = 20e6;
 
 generate_clean_dipole_dataset(sa,n_dipoles,train_size,[data_folder,'Clean Dataset.mat'])
 
