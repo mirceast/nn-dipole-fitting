@@ -8,6 +8,11 @@ if ~exist('sa','var')
     load mri
 end
 
+data_folder = 'C:\Users\Mircea\Google Drive\Data\nn-dipole-fitting';
+if ~exist(data_folder,'dir')
+    mkdir(data_folder)
+end
+
 % Sample locations from grid_fine
 % Moment between 0 and 10
 % Use mk_sensors_plane to convert 3d sensor locations to 2d
@@ -23,7 +28,7 @@ test_size = 1e3;
 
 for i = 1:numel(snr)
     fprintf('Started SNR %d/%d at %s\n',i,numel(snr),datestr(now));
-    generate_dipole_dataset(sa,n_dipoles,n_runs,snr(i),train_size,valid_size,test_size,['Dataset SNR ',num2str(snr(i)),'.mat'])
+    generate_dipole_dataset(sa,n_dipoles,n_runs,snr(i),train_size,valid_size,test_size,[data_folder,'/asdasdDataset SNR ',num2str(snr(i)),'.mat'])
 end
 
 
