@@ -9,3 +9,4 @@ for i = 1:n_runs
 end
 estimated_dipoles = estimated_dipoles(:,:,argmin(res_out));
 estimated_field = estimated_field(:,argmin(res_out));
+
