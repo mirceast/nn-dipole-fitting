@@ -25,19 +25,16 @@ end
 
 % Generate test set
 dipoles_test = nan(n_dipoles,6,test_size);
+estimated_dipoles_test = nan(n_dipoles,6,test_size);
 field_test = nan(n_chan,test_size);
-fitting_error = nan(test_size,n_dipoles);
-err_loc = nan(test_size,n_dipoles);
-err_mom = nan(test_size,n_dipoles);
 parfor i = 1:test_size
     % Generate dipoles
     [dipoles_test(:,:,i),~,field_test(:,i)] = generate_random_dipoles(n_dipoles,sa,snr);
     % Find dipoles - do multiple runs
-    [estimated_dipoles,estimated_field] = fit_dipoles(n_dipoles,field_test(:,i),sa,n_runs);
-    % Get error
-    [fitting_error(i,:),err_loc(i,:),err_mom(i,:)] = get_fitting_error(estimated_dipoles,dipoles_test(:,:,i),max_location,min_location,max_moment,min_moment);
+    [estimated_dipoles_test(:,:,i),estimated_field] = fit_dipoles(n_dipoles,field_test(:,i),sa,n_runs);
+
 end
 
-save(save_name,'sa','max_location','min_location','max_moment','min_moment','snr','n_runs','dipoles_train','field_train','dipoles_valid','field_valid','dipoles_test','field_test','fitting_error','err_loc','err_mom','-v7.3')
+save(save_name,'sa','max_location','min_location','max_moment','min_moment','snr','n_runs','dipoles_train','field_train','dipoles_valid','field_valid','dipoles_test','field_test','estimated_dipoles_test','-v7.3')
 
 
