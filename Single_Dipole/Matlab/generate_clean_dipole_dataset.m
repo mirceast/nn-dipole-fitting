@@ -10,11 +10,12 @@ min_moment = -max_moment;
 % Generate train set
 dipoles_train = nan(n_dipoles,6,train_size);
 field_train = nan(n_chan,train_size);
+tic
 parfor i = 1:train_size
     % Generate dipoles
     [dipoles_train(:,:,i),~,field_train(:,i)] = generate_random_dipoles(n_dipoles,sa,[]); % snr = [] which means no noise added
 end
-
+toc
 save(save_name,'sa','max_location','min_location','max_moment','min_moment','dipoles_train','field_train','-v7.3')
 
 
