@@ -1,4 +1,5 @@
 function [dipoles,dipole_field,noisy_field] = generate_random_dipoles(n_dipoles,sa,snr)
+% When snr is NaN or [] there is no noise added 
 
 % Useful variables
 n_chan = size(sa.locs_2D,1);
@@ -15,5 +16,9 @@ dipole_field = forward_general(dipoles,sa.fp);
 dipole_field = sum(dipole_field,2);
 
 % Add some noise
-noise = randn(n_chan,1);
-noisy_field = snr * dipole_field/norm(dipole_field) + noise/norm(noise); % noise is added with SNR=snr 
+if isempty(snr) || isnan(snr) 
+    noisy_field = dipole_field/norm(dipole_field); % noise is not added
+else
+    noise = randn(n_chan,1);
+    noisy_field = snr * dipole_field/norm(dipole_field) + noise/norm(noise); % noise is added with SNR=snr 
+end
