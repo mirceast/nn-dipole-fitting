@@ -19,7 +19,7 @@ import pdb
 import pickle
 
 # We create necessary subfolders if not present
-useful_paths = {"temp": "./temp/", "trained": "./Trained/", "analysis": "./Analysis/"}
+useful_paths = {"temp": "./temp/", "trained": "./Trained/", "analysis": "../Analysis/"}
 # Make a folder for each of the paths above if the folder doesn't exist
 [os.mkdir(useful_paths[each]) for each in list(useful_paths) if not os.path.isdir(useful_paths[each])];
 
@@ -237,6 +237,11 @@ def save_dict(data,save_name):
     pickle_out = open(save_name,"wb")
     pickle.dump(data, pickle_out)
     pickle_out.close()  
+    
+    
+def load_dict(path):
+    pickle_in = open(path,"rb")
+    return pickle.load(pickle_in)
     
     
 def save_model(model,train_loss,valid_loss,save_name):
