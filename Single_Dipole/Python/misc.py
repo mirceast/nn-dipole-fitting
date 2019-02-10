@@ -12,60 +12,75 @@ from matplotlib.ticker import AutoMinorLocator
 from matplotlib.ticker import MaxNLocator
 from glob import glob
 from sklearn.model_selection import KFold
+from tqdm import tqdm
+import pylab as pl
+from IPython import display
+import pdb
+import pickle
 
+# We create necessary subfolders if not present
+useful_paths = {"temp": "./temp/", "trained": "./Trained/", "analysis": "./Analysis/"}
+# Make a folder for each of the paths above if the folder doesn't exist
+[os.mkdir(useful_paths[each]) for each in list(useful_paths) if not os.path.isdir(useful_paths[each])];
 
-# Define the dataset class
-class dataset_from_mat():
-    def __init__(self,path_dataset, show_variables = False):
-        self.data_train, self.data_valid, self.data_test = read_data(path_dataset,show_variables)
-        self.n_chan = self.data_train["fields"].shape[1]
-        self.data_train["n_samples"] = self.data_train["dipoles"].shape[0]
-        self.data_valid["n_samples"] = self.data_valid["dipoles"].shape[0]
-        self.data_test["n_samples"] = self.data_test["dipoles"].shape[0]
-        
-        
 # Define our learner
 class dipfit(nn.Module):
-    def __init__(self,n_chan,p_dropout):
+    def __init__(self,sizes,batchnorm=False):
+        # sizes is for example [64,1024,512,256,3] for 64 inputs, 1024 neurons in layer 1, 256 in 3, and 3 outputs
         super().__init__()
-        self.sizes = [1024,512,256]
+        self.sizes = sizes
+        self.batchnorm = batchnorm
         
-        self.fc1 = nn.Linear(n_chan, self.sizes[0])
-        self.fc2 = nn.Linear(self.sizes[0], self.sizes[1])
-        self.fc3 = nn.Linear(self.sizes[1], self.sizes[2])
-        self.fc4 = nn.Linear(self.sizes[2], 6)
-
-        # Initialize weights
-        nn.init.kaiming_normal_(self.fc1.weight, nonlinearity='relu')        
-        nn.init.kaiming_normal_(self.fc2.weight, nonlinearity='relu')        
-        nn.init.kaiming_normal_(self.fc3.weight, nonlinearity='relu')        
-        nn.init.kaiming_normal_(self.fc4.weight, nonlinearity='relu')     
+        self.hidden = nn.ModuleList()
+        for k in range(len(sizes)-1):
+            self.hidden.append(nn.Linear(sizes[k], sizes[k+1]))
+            nn.init.kaiming_normal_(self.hidden[k].weight, nonlinearity='relu')  
+        
+        if self.batchnorm:
+            self.bn = nn.ModuleList()
+            for k in range(len(sizes)-1): # -1 because we don't want batchnorm on the output
+                self.bn.append(nn.BatchNorm1d(sizes[k+1]))   
         
     def forward(self, x): 
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        x = F.relu(self.fc3(x))
-        x = self.fc4(x)       
-        return x    
+        if self.batchnorm:
+            for k in range(len(self.hidden) - 1): # -1 because we don't want ReLU on the final output
+                x = F.relu(self.bn[k](self.hidden[k](x)))          
+        else:
+            for k in range(len(self.hidden) - 1): # -1 because we don't want ReLU on the final output
+                x = F.relu(self.hidden[k](x))     
+        x = self.hidden[-1](x)       
+        return x   
     
+    
+def check_cuda(gpu_idx = 0):
+    # Check if CUDA is available
+    use_cuda = torch.cuda.is_available()
+    if use_cuda and gpu_idx is not "cpu":
+        print('CUDA is available!  Training on GPU ...')
+        device = torch.device(f"cuda:{gpu_idx}")
+        print("Using",torch.cuda.get_device_name(device))
+    else:
+        print('CUDA is not available.  Training on CPU ...')
+        device = torch.device("cpu")
+    return device
+    
+               
+def normalize_dipole(dipoles,data,device,min_location,max_location,min_moment,max_moment):
+    return dipoles
+    out = torch.zeros(dipoles.size(0),6)
+    out[:,:3] = (dipoles[:,:3] - min_location) / (max_location - min_location);
+    out[:,3:] = (dipoles[:,3:] - min_moment) / (max_moment - min_moment);
+    return out
 
-def get_localization_error(predicted,actual): # numpy input
-    return np.sqrt(np.sum((predicted[:,:3] - actual[:,:3])**2,axis=1)) # in cm
+
+def get_localization_error(predicted,actual):
+    return torch.sqrt(torch.sum((predicted[:,:3] - actual[:,:3])**2, dim=1))
 
 
-def weighted_mse(predicted, actual, weight_localization=0.5): # torch input
-    if weight_localization < 0 or weight_localization > 1:
-        raise Exception("weight_localization should be a value in the range [0,1]")
-    weight_moment = 1 - weight_localization
-    loc_error = torch.mean(torch.mean((predicted[:,:3] - actual[:,:3])**2, dim=1))
-    mom_error = torch.mean(torch.mean((predicted[:,3:] - actual[:,3:])**2, dim=1))
-    return torch.mean(weight_localization * loc_error + weight_moment * mom_error)
-
-
-def train_epoch(model,data,batch_size,device,optimizer,weight_localization,
-     min_location,max_location,min_moment,max_moment):
+def train_epoch(model,data,batch_size,device,optimizer):
     train_loss = 0.0
     batch_time = []
+    model.train()
     for x, y in get_batches(data,batch_size):  
         batch_start = time.time()
         # Move to GPU
@@ -75,7 +90,7 @@ def train_epoch(model,data,batch_size,device,optimizer,weight_localization,
         # Get output
         output = model(x)
         # Get loss
-        loss = weighted_mse(normalize_dipole(output,data,device,min_location,max_location,min_moment,max_moment), normalize_dipole(y,data,device,min_location,max_location,min_moment,max_moment), weight_localization)    
+        loss = torch.mean(get_localization_error(output,y))  
         train_loss += loss.item() * x.size(0)
         # Calculate gradients
         loss.backward()
@@ -88,8 +103,7 @@ def train_epoch(model,data,batch_size,device,optimizer,weight_localization,
     return model, train_loss, batch_time
 
 
-def valid_epoch(model,data,batch_size,weight_localization,device,
-     min_location,max_location,min_moment,max_moment):
+def valid_epoch(model,data,batch_size,device):
     valid_loss = 0.0
     model.eval()
     with torch.no_grad():
@@ -99,8 +113,8 @@ def valid_epoch(model,data,batch_size,weight_localization,device,
             # move to GPU
             x, y = torch.from_numpy(x).to(device), torch.from_numpy(y).to(device)
             output = model(x)
-            ## update the average validation loss
-            loss = weighted_mse(normalize_dipole(output,data,device,min_location,max_location,min_moment,max_moment), normalize_dipole(y,data,device,min_location,max_location,min_moment,max_moment), weight_localization)   
+            # Get loss
+            loss = torch.mean(get_localization_error(output,y))  
             valid_loss += loss.item() * x.size(0)
             # Measure batch time
             batch_time.append(time.time() - batch_start)
@@ -109,47 +123,78 @@ def valid_epoch(model,data,batch_size,weight_localization,device,
     return valid_loss, batch_time
 
 
-def train(model,dataset,n_epochs,batch_size,device,optimizer,weight_localization,path_state_dict,
-     min_location,max_location,min_moment,max_moment):
+def show_loss_one_model(train_loss, valid_loss, title = None):
+    n_epochs = len(train_loss)
+    epochs = np.arange(1,n_epochs+1,1)
+    fig, ax = plt.subplots(figsize=(8,4))
+    ax.cla()
+    ax.plot(epochs, train_loss, label='Train')
+    ax.plot(epochs, valid_loss, label='Valid')
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel("Error [cm]")
+    ax.legend()
+    plt.minorticks_on()
+    if title is not None:
+        plt.title(title)
+    ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+    plt.show() 
+    display.clear_output(wait=True)        
+    
+
+def train_and_validate_epoch(model,data_train,data_valid,batch_size,device,optimizer):
+    # Train 
+    model, train_loss_epoch, train_batch_time = train_epoch(model,data_train,batch_size,device,optimizer)
+    # Validate
+    valid_loss_epoch, valid_batch_time = valid_epoch(model,data_valid,batch_size,device) 
+    return model, train_loss_epoch, valid_loss_epoch, train_batch_time, valid_batch_time
+
+
+def get_model_name(path_model,sizes,n_epochs):
+    sizes_str = str(sizes).replace("["," ").replace("]"," ").replace(", ","-")[1:-1]
+    return "{}size_{}_epochs_{:03d}.pt".format(path_model,sizes_str,n_epochs)
+
+    
+def train(model,data_train,data_valid,n_epochs,batch_size,device,optimizer,lr_scheduler = None,show_every = np.inf):
     valid_loss_min = np.Inf 
     train_loss = []
     valid_loss = []
     mean_train_batch_time = []
     mean_valid_batch_time = []
+    path_state_dict = f"./temp/temp_state_dict_{str(int(np.abs(np.random.randn()) * 1e12))}.pt"
     # Time everything
     time_start = time.time()  
-    for epoch in range(1, n_epochs+1):
-        time_start_epoch = time.time()  
-        # Train 
-        model, train_loss_epoch, train_batch_time = train_epoch(model,dataset.data_train,batch_size,device,optimizer,weight_localization,
-     min_location,max_location,min_moment,max_moment)
-        train_loss.append(train_loss_epoch) 
-        mean_train_batch_time.append(train_batch_time)
-        # Validate
-        valid_loss_epoch, valid_batch_time = valid_epoch(model,dataset.data_valid,batch_size,weight_localization,device,
-     min_location,max_location,min_moment,max_moment)
-        valid_loss.append(valid_loss_epoch)  
-        mean_valid_batch_time.append(valid_batch_time)
-        # Save if validation loss is the lowest so far
-        if valid_loss_epoch <= valid_loss_min:
-            torch.save(model.state_dict(), path_state_dict)
-            valid_loss_min = valid_loss_epoch         
-        # Print epoch statistics
-        print('Epoch {} done in {:.2f} seconds. \tTraining Loss: {:.9f} \tValidation Loss: {:.9f}'.format(
-            epoch,             
-            time.time() - time_start_epoch,
-            train_loss_epoch,
-            valid_loss_epoch
-            ))         
+    try:
+        for epoch in range(1, n_epochs+1):
+            time_start_epoch = time.time()  
+            # Train and validate (in one function in case we interrupt from keyboard)
+            model, train_loss_epoch, valid_loss_epoch, train_batch_time, valid_batch_time = train_and_validate_epoch(
+                                                                        model,data_train,data_valid,batch_size,device,optimizer)
+            train_loss.append(train_loss_epoch)
+            mean_train_batch_time.append(train_batch_time)
+            valid_loss.append(valid_loss_epoch) 
+            mean_valid_batch_time.append(valid_batch_time) 
+            # Save if validation loss is the lowest so far
+            if valid_loss_epoch <= valid_loss_min:
+                torch.save(model.state_dict(), path_state_dict)
+                valid_loss_min = valid_loss_epoch           
+            # Adjust learning rate if we have a scheduler
+            if lr_scheduler is not None:
+                lr_scheduler.step(valid_loss_epoch)
+            if not epoch%show_every and epoch is not 1:
+                show_loss_one_model(train_loss,valid_loss)
+    except KeyboardInterrupt:
+        pass
     # Show final statistics    
     print("{} epochs ready in {:.3f} seconds. Minimum validation loss: {:.6f}".format(
-        n_epochs, (time.time() - time_start), valid_loss_min))
+        epoch, (time.time() - time_start), valid_loss_min))
     print("Train batch time: {:.5f} ± {:.5f} seconds".format(
         np.mean(mean_train_batch_time), np.std(mean_train_batch_time)))
     print("Valid batch time: {:.5f} ± {:.5f} seconds".format(
         np.mean(mean_valid_batch_time), np.std(mean_valid_batch_time)))
+    show_loss_one_model(train_loss,valid_loss)
     # Load best config
     model.load_state_dict(torch.load(path_state_dict))
+    os.remove(path_state_dict)
     return model, train_loss, valid_loss
     
     
@@ -161,69 +206,89 @@ def get_batches(data,batch_size):
     kf.get_n_splits(data["fields"])
     # Return data
     for _, idx in kf.split(data["fields"]):
-        x = data["fields"][idx,:]
+        # Prepare some noise
+        noise = np.random.randn(len(idx),data["fields"].shape[1])
+        noise = noise / np.linalg.norm(noise,axis=1)[:,None]        
+        x = (np.random.exponential(size=(len(idx),1),scale=5)).astype(np.float32) * data["fields"][idx,:] + noise.astype(np.float32)
         y = data["dipoles"][idx,:]
         yield x, y
         
         
-def normalize_dipole(dipoles,data,device,
-     min_location,max_location,min_moment,max_moment):
-    out = torch.zeros(dipoles.size(0),6)
-    out[:,:3] = (dipoles[:,:3] - min_location) / (max_location - min_location);
-    out[:,3:] = (dipoles[:,3:] - min_moment) / (max_moment - min_moment);
-    return out
+def get_test_pred(data_test, device, model = None, pred_dipoles=None, snr=np.nan):
+    # Test dipoles location - ground truth
+
+    test_dipoles = torch.from_numpy(data_test["dipoles"]).to(device)    
+    # Calculate test loss for the network
+    if pred_dipoles is None:
+        model.eval()
+        pred_dipoles = model(torch.from_numpy(data_test["fields"]).to(device))
+    else:
+        pred_dipoles = torch.from_numpy(pred_dipoles).to(device)
+    loc_error = get_localization_error(pred_dipoles,test_dipoles).detach().to("cpu").numpy() 
+    dipoles = {
+        "loc": data_test["dipoles"],
+        "loc_est": pred_dipoles.to("cpu").detach().numpy(),
+        "loc_err": loc_error,
+        "snr": snr}
+    return dipoles
 
 
-def read_data(dataset,show_variables = False):
+def save_dict(data,save_name):
+    pickle_out = open(save_name,"wb")
+    pickle.dump(data, pickle_out)
+    pickle_out.close()  
+    
+    
+def save_model(model,train_loss,valid_loss,save_name):
+    data = {"sizes": model.sizes,
+       "batchnorm": model.batchnorm,
+       "state_dict": model.state_dict(),
+       "train_loss": train_loss,
+       "valid_loss": valid_loss}
+    torch.save(data, save_name)
+
+
+def load_model(save_name):
+    data = torch.load(save_name)
+    model = dipfit(data["sizes"], batchnorm=data["batchnorm"])
+    model.load_state_dict(data["state_dict"])
+    train_loss = data["train_loss"]
+    valid_loss = data["valid_loss"]
+    return model, train_loss, valid_loss
+
+
+def read_train_data(dataset,show_variables = False):
     # Print Variables
     with h5py.File(dataset, 'r') as file:
         if show_variables:
             print(list(file.keys()))            
         # Get separate train, validation, and test data
         data_train = {
-        "dipoles": np.array(file['dipoles_train'],dtype=np.float32).squeeze(),
+        "dipoles": np.array(file['dipoles_train'],dtype=np.float32).squeeze()[:,:3],
         "fields": np.array(file['field_train'],dtype=np.float32),
-        "max_location": np.array(file['max_location'],dtype=np.float32),
-        "max_moment": np.array(file['max_moment'],dtype=np.float32),
-        "min_location": np.array(file['min_location'],dtype=np.float32),
-        "min_moment": np.array(file['min_moment'],dtype=np.float32),
-        "n_runs": np.array(file['n_runs'],dtype=np.float32),
-        "snr": np.array(file['snr'],dtype=np.float32)} 
-        
+        "n_samples": np.array(file['field_train'],dtype=np.float32).shape[0],
+        "n_chan": np.array(file['field_train'],dtype=np.float32).shape[1]}                    
         data_valid = {
-        "dipoles": np.array(file['dipoles_valid'],dtype=np.float32).squeeze(),
+        "dipoles": np.array(file['dipoles_valid'],dtype=np.float32).squeeze()[:,:3],
         "fields": np.array(file['field_valid'],dtype=np.float32),
-        "max_location": np.array(file['max_location'],dtype=np.float32),
-        "max_moment": np.array(file['max_moment'],dtype=np.float32),
-        "min_location": np.array(file['min_location'],dtype=np.float32),
-        "min_moment": np.array(file['min_moment'],dtype=np.float32),
-        "n_runs": np.array(file['n_runs'],dtype=np.float32),
-        "snr": np.array(file['snr'],dtype=np.float32)}       
-        
+        "n_samples": np.array(file['field_valid'],dtype=np.float32).shape[0],
+        "n_chan": np.array(file['field_valid'],dtype=np.float32).shape[1]}  
+    return data_train, data_valid
+
+def read_test_data(dataset,show_variables = False):
+    # Print Variables
+    with h5py.File(dataset, 'r') as file:
+        if show_variables:
+            print(list(file.keys()))            
+        # Get separate train, validation, and test data
         data_test = {
-        "dipoles": np.array(file['dipoles_test'],dtype=np.float32).squeeze(),
-        "dipoles_estimated": np.array(file['estimated_dipoles_test'],dtype=np.float32).squeeze(),
+        "dipoles": np.array(file['dipoles_test'],dtype=np.float32).squeeze()[:,:3],
         "fields": np.array(file['field_test'],dtype=np.float32),
-        "max_location": np.array(file['max_location'],dtype=np.float32),
-        "max_moment": np.array(file['max_moment'],dtype=np.float32),
-        "min_location": np.array(file['min_location'],dtype=np.float32),
-        "min_moment": np.array(file['min_moment'],dtype=np.float32),
-        "n_runs": np.array(file['n_runs'],dtype=np.float32),
-        "snr": np.array(file['snr'],dtype=np.float32)}              
-    return data_train, data_valid, data_test
-
-
-
-
-
-
-
-
-
-
-
-
-
+        "n_samples": np.array(file['field_test'],dtype=np.float32).shape[0],
+        "n_chan": np.array(file['field_test'],dtype=np.float32).shape[1],
+        "dipoles_estimated": np.array(file['estimated_dipoles_test'],dtype=np.float32).squeeze()[:,:3],
+        "snr": np.array(file['snr'],dtype=np.float32).squeeze()}   
+    return data_test
 
 
 

@@ -1,4 +1,4 @@
-function [estimated_dipoles,estimated_field] = fit_dipoles(n_dipoles,input_field,sa,n_runs)
+function [estimated_dipoles,estimated_field,res_out] = fit_dipoles(n_dipoles,input_field,sa,n_runs)
 
 n_chan = size(sa.locs_2D,1);
 res_out = nan(n_runs,1);
@@ -9,4 +9,4 @@ for i = 1:n_runs
 end
 estimated_dipoles = estimated_dipoles(:,:,argmin(res_out));
 estimated_field = estimated_field(:,argmin(res_out));
-
+res_out = min(res_out);

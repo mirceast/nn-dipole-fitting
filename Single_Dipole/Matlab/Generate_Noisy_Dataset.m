@@ -22,14 +22,12 @@ end
 % Define stuff
 n_dipoles = 1;
 n_runs = 5;
-snr = [0.1,0.5,1,2];
-train_size = 1e6;
-valid_size = 1e5;
-test_size = 1e3;
+snr = [0.1,0.5,1,2,5,10,100];
+test_size = 1e4;
 
 for i = 1:numel(snr)
     fprintf('Started SNR %d/%d at %s\n',i,numel(snr),datestr(now));
-    generate_dipole_dataset(sa,n_dipoles,n_runs,snr(i),train_size,valid_size,test_size,[data_folder,'Dataset SNR ',num2str(snr(i)),'.mat'])
+    generate_and_fit_dipole_dataset(sa,n_dipoles,n_runs,snr(i),test_size,[data_folder,'Dataset SNR ',num2str(snr(i)),'.mat'])
 end
 
 
