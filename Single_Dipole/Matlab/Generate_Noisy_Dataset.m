@@ -27,7 +27,7 @@ test_size = 1e4;
 
 for i = 1:numel(snr)
     fprintf('Started SNR %d/%d at %s\n',i,numel(snr),datestr(now));
-    generate_and_fit_dipole_dataset(sa,n_dipoles,n_runs,snr(i),test_size,[data_folder,'Dataset SNR ',num2str(snr(i)),'.mat'])
+    generate_and_fit_dipole_dataset(sa,n_dipoles,n_runs,snr(i),test_size,[data_folder,'Dataset SNR ',sprintf('%02d',i),'.mat'])
 end
 
 
