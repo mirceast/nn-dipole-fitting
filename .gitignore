@@ -3,6 +3,6 @@ Single_Dipole/Python/.ipynb_checkpoints/
 Single_Dipole/Python/.ipynb_checkpoints/*
 Single_Dipole/Matlab/*.asv
 Single_Dipole/Matlab/*.mat
-Single_Dipole/Python/__pycache__
 Single_Dipole/Python/trained
 Single_Dipole/Python/temp
+*__pycache__*

@@ -8,8 +8,8 @@ if ~exist('sa','var')
     load mri
 end
 
-data_folder = 'C:\Users\Mircea\Google Drive\Data\nn-dipole-fitting/Single_Dipole/';
-% data_folder = '/home/mstoica/Data/Single_Dipole/';
+data_folder = 'C:\Users\Mircea\Google Drive\Data\nn-dipole-fitting/Multi_Dipole/';
+% data_folder = '/home/mstoica/Data/Multi_Dipole/';
 if ~exist(data_folder,'dir')
     mkdir(data_folder)
 end
@@ -20,7 +20,7 @@ end
 % Maybe do the 2d interpolation and use that image for the convolution
 
 % Define stuff
-n_dipoles = 1;
+n_dipoles = [1,200];
 train_size = 1e6;
 valid_size = 1e5;
 

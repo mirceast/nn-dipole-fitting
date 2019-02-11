@@ -8,8 +8,8 @@ if ~exist('sa','var')
     load mri
 end
 
-data_folder = 'C:\Users\Mircea\Google Drive\Data\nn-dipole-fitting/';
-% data_folder = '/home/mstoica/Data/';
+data_folder = 'C:\Users\Mircea\Google Drive\Data\nn-dipole-fitting/Single_Dipole/';
+% data_folder = '/home/mstoica/Data/Single_Dipole/';
 if ~exist(data_folder,'dir')
     mkdir(data_folder)
 end
